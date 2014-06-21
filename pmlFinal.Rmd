@@ -1,0 +1,146 @@
+---
+title: "Human Activity Recognition with Boosted Random Forest Algorithm"
+author: "M. Umut DEMiREZEN"
+date: "Saturday, June 21, 2014"
+output: html_document
+---
+
+###Introduction
+In this work, human activity data recorded with wearable sensor is used to analyse to classify the movements. HAR data set from  http://groupware.les.inf.puc-rio.br/har is used. This data set contains lots of missing information (empty columns) that has a bad impact for classification. Because of this problem, Data has to be examined carrefully first.
+
+Before we splite the data into training and validation sets, the columns contaning irrilevant information(not sensor measurements), being empty,  consisting of NAs (Not Available strings) has to be removed. After then correlation between the predictors has to be examined not to include highly correlated columns in the validation and training sets. 
+After this the predictors the most important for the classification can be selected.
+
+###Investigation of The Data to Obtain Training and Validation Sets
+
+Initially data set includes **160** columns. First Near Zero Variables are investigated. But first data not coming from the sensors and contains the high number of 'NA's and the empty columns are removed to the further operations. These columns may lead to overfitting and other problems. These columns are listed below :
+
+* num_window
+* timestamp
+* X
+* user_name
+* new_window
+* kurtosis
+* skewness
+* max_yaw_belt
+* min_yaw_belt
+* amplitude_yaw_belt
+* max_yaw_dumbbell
+* min_yaw_dumbbell
+* amplitude_yaw_dumbbell
+* max_yaw_forearm
+* min_yaw_forearm
+* amplitude_yaw_forearm
+
+Near Zero Varible calculation result for raw and preprocessed training data is shown below respectively :
+
+
+```{r dataInvestigation, cache=TRUE}
+
+library(caret)
+library(corrplot)
+
+set.seed(2014)
+
+training <- read.csv("C:/00_Practical Machine Learning/pml-training.csv")
+testing <- read.csv("C:/00_Practical Machine Learning/pml-testing.csv")
+
+
+NAstrainig <- apply(training,2,function(x) {sum(is.na(x))}) 
+validData <- training[,which(NAstrainig == 0)]
+rIndex <- grep("num_window|timestamp|X|user_name|new_window|kurtosis|skewness|max_yaw_belt|min_yaw_belt|amplitude_yaw_belt|max_yaw_dumbbell|min_yaw_dumbbell|amplitude_yaw_dumbbell|max_yaw_forearm|min_yaw_forearm|amplitude_yaw_forearm",names(validData))
+trainData <- validData[,-rIndex]
+
+nzvRaw <- nearZeroVar(training,saveMetrics=TRUE)
+print(nzvRaw)
+nzvtrainData <- nearZeroVar(trainData,saveMetrics=TRUE)
+print(nzvtrainData)
+```
+
+As it is sen there are no NZVs in the data set. Now it is ready for further investigation. Now we have 52 peredictors and an outcome `classw" for training for now. Next, correlation between the predictors are investigated. Results are shown below,
+
+
+```{r plots, cache=TRUE}
+NAstesting <- apply(testing,2,function(x) {sum(is.na(x))}) 
+validDataTesting <- testing[,which(NAstesting == 0)]
+rIndex <- grep("num_window|timestamp|X|user_name|new_window|kurtosis|skewness|max_yaw_belt|min_yaw_belt|amplitude_yaw_belt|max_yaw_dumbbell|min_yaw_dumbbell|amplitude_yaw_dumbbell|max_yaw_forearm|min_yaw_forearm|amplitude_yaw_forearm",names(validDataTesting))
+testingData <- validDataTesting[,-rIndex]
+targetCorrelationInspection <- trainData[,-grep("classe",names(trainData))]
+correlationMatrix <- cor(targetCorrelationInspection)
+corrplot(correlationMatrix, order = "original", type = "upper",tl.cex = 0.7, method = "pie")
+```
+
+As seen from the figure, there are lots of correlated predictor both positive and negative manner. So lets find them then decide what to do with. Here are the pedictors with correlation > 0.95,
+
+```{r corelationops, cache=TRUE}
+z <- which((abs(correlationMatrix) > 0.95) & abs(correlationMatrix) < 1, arr.ind=T)
+a <- data.frame(rownames(z),colnames(correlationMatrix)[z[,2]])
+print("Highly Correlated Predictors: ")
+print(a)
+```
+
+Correlation matrix shows that `roll_belt` and `total_accel_belt` are highly correlated at least two predictor. There are also other correlated predictors are present. This is unwanted situation. So we can either remove these columns from the data set or we can use principal component analysis to get linearly uncorrelated predictors then use them.
+
+###Principle Component Analysis of The Correlated Predictors
+
+After splitting the proccessed data into training and validation subparts (%75 for training, %25 for validation), PCA used to get linearly uncorrelated predictors. PCA operaion has been applied both training and validation sets also for the final testing.
+
+```{r pcas, cache=TRUE, echo=FALSE}
+SeparationIndexes = createDataPartition(y = trainData$classe, p = 0.75, list = FALSE)
+trainingSet <- trainData[SeparationIndexes, ]
+validationSet <- trainData[-SeparationIndexes, ]
+
+preProccessing <- preProcess(trainingSet[, -grep("classe",names(trainData))], method = "pca", thresh = 0.99)
+trainingPC <- predict(preProccessing, trainingSet[, -grep("classe",names(trainData))])
+validatingPC <- predict(preProccessing, validationSet[, -grep("classe",names(trainData))])
+```
+
+Lets train a Random Forest Model for this new data set and find out the results. By using trainControl, 4 Fold Cross Correlation is used for resampling. Accuracy based model selection processed to best bodel which was mtry = 2. 
+
+```{r results, cache=TRUE}
+traincontrol <- trainControl(method="cv", number=4)
+st <- system.time(modelFit <- train(trainingSet$classe ~ ., method = "rf", data = trainingPC,
+                                    trControl = traincontrol,importance = TRUE))
+print(st)
+print(modelFit, digits=3)
+print(modelFit$finalModel,digits=3)
+
+validationResults <- predict(modelFit, validatingPC)
+confusionM <- confusionMatrix(validationSet$classe, validationResults)
+print(confusionM)
+
+mA <- postResample(validationSet$classe, validationResults)
+modelAccuracy <- mA[[1]]
+
+print("Model Accuracy: ")
+print(modelAccuracy,digits=3)
+
+outOfSampleError <- 1 - modelAccuracy
+print("Out Of Sample Error")
+print(outOfSampleError,digits=3)
+```
+As seen from the results, `model accuracy is 97.8%` by using postResample operation and `The out of sample error is 2.22%`. these are good results for the estimation of the final testing data. Confusion Matrix of this model is also shown and `OOB estimate of  error rate is 1.92%`. Sensitivity of 98.31% and Specifity of 99.94% scores also obtaing and these are the satisfactory results.
+
+PCA Importance levels of the trained model is also shown the figure below
+```{r plotimportance, cache=TRUE}
+
+varImpPlot(modelFit$finalModel, sort = TRUE, type = 1, pch = 18, col = 4, main = "Principal Component Importance Levels")
+```
+
+After  obtaining the final model with 97.8% accuracy lets find out what is the result for the testing data set...
+
+```{r testing, cache=TRUE}
+testingPC <- predict(preProccessing, testingData[, -grep("problem_id",names(testingData))])
+predictions <- predict(modelFit,testingPC)
+predVector <- as.vector(predictions)
+print("Classification Results:")
+print(predVector)
+```
+
+With this model, result is `20 out of 20` items successfully classified and the final score is 100%.
+
+###Conclusion
+
+All the testing set data is correctly classified with ramdom forest model through PCA corrected and modified training set. if all the training data was used for training(without cross validation not separating a validation set) the model then the model accuracy would be 99.6%. Under this situation 20/20 correct classificaion was obtained.
+
+
