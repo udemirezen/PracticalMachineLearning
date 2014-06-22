@@ -1,5 +1,5 @@
 ---
-title: "Human Activity Recognition with Boosted Random Forest Algorithm"
+title: "Human Activity Recognition with Random Forest Algorithm"
 author: "M. Umut DEMiREZEN"
 date: "Saturday, June 21, 2014"
 output: html_document
