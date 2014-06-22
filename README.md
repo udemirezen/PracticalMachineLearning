@@ -1,4 +1,4 @@
-Human Activity Recognition with Boosted Random Forest Algorithm
+Human Activity Recognition with Random Forest Algorithm
 ========================================================
 
 #### **Author** : M. Umut DEMiREZEN
